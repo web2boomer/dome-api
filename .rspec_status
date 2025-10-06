@@ -1,0 +1,21 @@
+example_id                          | status | run_time        |
+----------------------------------- | ------ | --------------- |
+./spec/clob_client_spec.rb[1:1]     | passed | 0.0002 seconds  |
+./spec/clob_client_spec.rb[1:2:1:1] | failed | 0.00199 seconds |
+./spec/clob_client_spec.rb[1:2:1:2] | failed | 0.00008 seconds |
+./spec/clob_client_spec.rb[1:2:2:1] | failed | 0.00116 seconds |
+./spec/clob_client_spec.rb[1:2:3:1] | passed | 0.00044 seconds |
+./spec/clob_client_spec.rb[1:2:3:2] | passed | 0.00039 seconds |
+./spec/clob_client_spec.rb[1:2:3:3] | passed | 0.0007 seconds  |
+./spec/clob_client_spec.rb[1:2:3:4] | passed | 0.00012 seconds |
+./spec/clob_client_spec.rb[1:2:3:5] | passed | 0.00073 seconds |
+./spec/clob_client_spec.rb[1:2:3:6] | failed | 0.00969 seconds |
+./spec/clob_client_spec.rb[1:2:4:1] | passed | 0.00004 seconds |
+./spec/clob_client_spec.rb[1:2:4:2] | passed | 0.00003 seconds |
+./spec/clob_client_spec.rb[1:2:4:3] | passed | 0.00002 seconds |
+./spec/clob_client_spec.rb[1:2:4:4] | passed | 0.00004 seconds |
+./spec/clob_client_spec.rb[1:2:4:5] | passed | 0.00004 seconds |
+./spec/clob_client_spec.rb[1:2:5:1] | passed | 0.00003 seconds |
+./spec/clob_client_spec.rb[1:2:5:2] | passed | 0.00003 seconds |
+./spec/clob_client_spec.rb[1:2:5:3] | passed | 0.00002 seconds |
+./spec/clob_client_spec.rb[1:2:5:4] | passed | 0.00004 seconds |
