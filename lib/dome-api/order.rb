@@ -7,6 +7,7 @@ module DomeAPI
                 :order_hash, :user
 
     def initialize(attributes = {})
+      # ap attributes
       @token_id = attributes[:token_id]
       @side = attributes[:side]
       @market_slug = attributes[:market_slug]
