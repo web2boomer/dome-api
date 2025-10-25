@@ -172,6 +172,7 @@ module DomeAPI
       params[:token_id] = options[:token_id] if options[:token_id]
       params[:start_time] = options[:start_time] if options[:start_time]
       params[:end_time] = options[:end_time] if options[:end_time]
+      params[:user] = options[:user] if options[:user]
       params[:limit] = options[:limit] || 100
       params[:offset] = options[:offset] || 0
       params[:user] = options[:user] if options[:user]
