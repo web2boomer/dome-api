@@ -31,6 +31,27 @@ module DomeAPI
       parse_order_history_response(response)
     end
 
+
+    # Fetches activity data for a specific user with optional filtering
+    # @param user [String] User wallet address to fetch activity for (required)
+    # @param options [Hash] Query parameters for filtering activities
+    # @option options [Integer] :start_time Filter activity from this Unix timestamp in seconds (inclusive)
+    # @option options [Integer] :end_time Filter activity until this Unix timestamp in seconds (inclusive)
+    # @option options [String] :market_slug Filter activity by market slug
+    # @option options [String] :condition_id Filter activity by condition ID
+    # @option options [Integer] :limit Number of activities to return (1-1000, default: 100)
+    # @option options [Integer] :offset Number of activities to skip for pagination (default: 0)
+    # @return [ActivityResponse] Response containing activities array and pagination info
+    def get_activity(user, options = {})
+      validate_wallet_address(user)
+      validate_activity_params(options)
+      
+      uri = build_activity_uri(user, options)
+      response = make_request(uri)
+      
+      parse_activity_response(response)
+    end    
+
     # Fetches the current market price for a market by token_id
     # @param token_id [String] The token ID of the market
     # @param at_time [Integer, nil] Unix timestamp to fetch historical price (optional)
@@ -78,6 +99,7 @@ module DomeAPI
       
       parse_wallet_pnl_response(response)
     end
+
 
     private
 
@@ -162,6 +184,28 @@ module DomeAPI
       end
     end
 
+    def validate_activity_params(options)
+      if options[:limit] && (options[:limit] < 1 || options[:limit] > 1000)
+        raise ArgumentError, "Limit must be between 1 and 1000"
+      end
+      
+      if options[:offset] && options[:offset] < 0
+        raise ArgumentError, "Offset must be >= 0"
+      end
+      
+      if options[:start_time] && (!options[:start_time].is_a?(Integer) || options[:start_time] <= 0)
+        raise ArgumentError, "start_time must be a positive integer (Unix timestamp)"
+      end
+      
+      if options[:end_time] && (!options[:end_time].is_a?(Integer) || options[:end_time] <= 0)
+        raise ArgumentError, "end_time must be a positive integer (Unix timestamp)"
+      end
+      
+      if options[:start_time] && options[:end_time] && options[:start_time] >= options[:end_time]
+        raise ArgumentError, "start_time must be less than end_time"
+      end
+    end
+
     def build_order_history_uri(options)
       uri = URI("#{BASE_URL}/polymarket/orders")
       params = {}
@@ -210,6 +254,25 @@ module DomeAPI
       params = { granularity: granularity }
       params[:start_time] = start_time if start_time
       params[:end_time] = end_time if end_time
+      
+      uri.query = URI.encode_www_form(params)
+      uri
+    end
+
+    def build_activity_uri(user, options)
+      uri = URI("#{BASE_URL}/polymarket/activity")
+      params = {}
+      
+      # Required parameter
+      params[:user] = user
+      
+      # Optional parameters
+      params[:start_time] = options[:start_time] if options[:start_time]
+      params[:end_time] = options[:end_time] if options[:end_time]
+      params[:market_slug] = options[:market_slug] if options[:market_slug]
+      params[:condition_id] = options[:condition_id] if options[:condition_id]
+      params[:limit] = options[:limit] || 100
+      params[:offset] = options[:offset] || 0
       
       uri.query = URI.encode_www_form(params)
       uri
@@ -298,6 +361,15 @@ module DomeAPI
         end_time: data[:end_time],
         wallet_address: data[:wallet_address],
         pnl_over_time: data[:pnl_over_time] || []
+      )
+    end
+
+    def parse_activity_response(response)
+      data = JSON.parse(response.body, symbolize_names: true)
+      
+      ActivityResponse.new(
+        activities: data[:activities] || [],
+        pagination: data[:pagination] || {}
       )
     end
   end

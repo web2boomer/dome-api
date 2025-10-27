@@ -1,8 +1,10 @@
 # Dome
 
-Ruby client for the Polymarket CLOB. Full API documentation can be found [here](https://docs.polymarket.com/developers/dev-resources/main). Ported from [py-dome-api](https://github.com/Polymarket/py-dome-api).
+Ruby gem for [Dome](https://domeapi.io/), which offers APIs for Prediction Markets (currently Polymarket and Kalshi). 
 
-It's a work in progress, not every part of the client has been tested. But you can place orders so wen lambo? 
+Full API documentation can be found [here](https://docs.domeapi.io/).
+
+This gem is a work in progress.
 
 ### Installation
 
@@ -590,6 +592,180 @@ time_periods.each do |period|
 end
 ```
 
+### Activity
+
+The gem provides access to the Dome API's Activity endpoint, allowing you to fetch activity data for a specific user with optional filtering by market, condition, and time range. Returns trading activity including MERGES, SPLITS, and REDEEMS.
+
+#### Basic Usage
+
+```ruby
+# Get activity for a specific user
+response = client.get_activity("0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b")
+
+# Access the activities
+response.activities.each do |activity|
+  puts "#{activity.side} #{activity.shares_normalized} shares"
+  puts "Market: #{activity.title}"
+  puts "---"
+end
+
+# Check pagination info
+puts "Total activities: #{response.total_activities}"
+puts "Has more pages: #{response.has_more?}"
+```
+
+#### Filtering Activities
+
+```ruby
+# Filter by market slug
+response = client.get_activity(
+  "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b",
+  market_slug: "will-the-doj-charge-boeing"
+)
+
+# Filter by time range (Unix timestamps)
+response = client.get_activity(
+  "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b",
+  start_time: 1640995200,  # January 1, 2022
+  end_time: 1672531200     # January 1, 2023
+)
+
+# Filter by condition ID
+response = client.get_activity(
+  "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b",
+  condition_id: "0x4567b275e6b667a6217f5cb4f06a797d3a1eaf1d0281fb5bc8c75e2046ae7e57"
+)
+```
+
+#### Pagination
+
+```ruby
+# Get first page
+response = client.get_activity(user_address, limit: 50, offset: 0)
+
+# Get second page
+response = client.get_activity(user_address, limit: 50, offset: 50)
+
+# Loop through all pages
+offset = 0
+limit = 100
+
+loop do
+  response = client.get_activity(user_address, limit: limit, offset: offset)
+  break if response.activities.empty?
+  
+  # Process activities
+  response.activities.each do |activity|
+    puts "Processing activity: #{activity.tx_hash}"
+  end
+  
+  break unless response.has_more?
+  offset += limit
+end
+```
+
+#### Working with Activity Objects
+
+Each activity in the response is a `DomeAPI::Order` object with the following attributes:
+
+```ruby
+activity = response.activities.first
+
+# Basic activity information
+activity.token_id          # Token identifier
+activity.side             # "BUY", "SELL", "MERGE", "SPLIT", or "REDEEM"
+activity.price            # Price (Float)
+activity.shares           # Raw shares amount (Integer)
+activity.shares_normalized # Normalized shares amount (Float)
+activity.tx_hash          # Transaction hash
+activity.order_hash       # Order hash
+activity.timestamp        # Unix timestamp
+activity.user             # User wallet address
+
+# Market information
+activity.market_slug      # Market identifier
+activity.condition_id     # Condition identifier
+activity.title            # Market title/question
+
+# Helper methods
+activity.buy?             # Returns true if side is "BUY"
+activity.sell?            # Returns true if side is "SELL"
+
+# Convert to hash or JSON
+activity.to_h             # Returns hash representation
+activity.to_json          # Returns JSON string
+```
+
+#### Working with ActivityResponse Objects
+
+The `get_activity` method returns a `DomeAPI::ActivityResponse` object:
+
+```ruby
+response = client.get_activity(user_address)
+
+# Access activities
+response.activities                    # Array of Order objects
+response.activities.size              # Number of activities in current page
+response.activities.empty?            # Check if no activities
+response.activities[0]                # Access first activity
+response.activities.each { |a| ... }  # Iterate over activities
+
+# Pagination information
+response.pagination                # Hash with pagination data
+response.total_activities          # Total number of activities available
+response.limit                     # Current page limit
+response.offset                    # Current page offset
+response.has_more?                 # Whether more pages are available
+
+# Convert to hash or JSON
+response.to_h                      # Returns hash representation
+response.to_json                   # Returns JSON string
+```
+
+#### Complete Example
+
+```ruby
+require 'dome-api'
+
+# Initialize client
+client = DomeAPI::Client.new(api_key: ENV['DOME_API_KEY'])
+user_address = "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"
+
+# Get activities for a specific market in the last 30 days
+end_time = Time.now.to_i
+start_time = end_time - (30 * 24 * 60 * 60)
+
+begin
+  response = client.get_activity(
+    user_address,
+    market_slug: "will-the-doj-charge-boeing",
+    start_time: start_time,
+    end_time: end_time,
+    limit: 100
+  )
+  
+  puts "Found #{response.size} activities out of #{response.total_activities} total"
+  
+  # Analyze by activity type
+  redeem_activities = response.activities.select { |a| a.side == "REDEEM" }
+  merge_activities = response.activities.select { |a| a.side == "MERGE" }
+  split_activities = response.activities.select { |a| a.side == "SPLIT" }
+  
+  puts "Redeem activities: #{redeem_activities.size}"
+  puts "Merge activities: #{merge_activities.size}"
+  puts "Split activities: #{split_activities.size}"
+  
+  # Show recent activities
+  response.activities.first(5).each do |activity|
+    activity_time = Time.at(activity.timestamp)
+    puts "#{activity.side} on #{activity_time.strftime('%Y-%m-%d')} - #{activity.title}"
+  end
+  
+rescue DomeAPI::Error => e
+  puts "Error fetching activities: #{e.message}"
+end
+```
+
 ### Market Price
 
 The gem provides access to the Dome API's Market Price endpoint, allowing you to fetch current and historical market prices for any token.
@@ -706,6 +882,7 @@ end
 #### Client Methods
 
 - `get_order_history(options = {})` - Fetches historical order data
+- `get_activity(user, options = {})` - Fetches activity data for a specific user
 - `get_market_price(token_id, at_time: nil)` - Fetches current or historical market price
 - `get_candlesticks(condition_id, start_time:, end_time:, interval: 1)` - Fetches historical candlestick data
 - `get_wallet_pnl(wallet_address, granularity:, start_time: nil, end_time: nil)` - Fetches wallet profit and loss data
@@ -722,6 +899,18 @@ end
 | `limit` | Integer | Number of orders to return (1-1000, default: 100) | `50` |
 | `offset` | Integer | Number of orders to skip (default: 0) | `0` |
 | `user` | String | Filter by user wallet address | `"0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"` |
+
+#### Activity Query Parameters
+
+| Parameter | Type | Description | Example |
+|-----------|------|-------------|---------|
+| `user` | String | User wallet address to fetch activity for (required) | `"0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"` |
+| `start_time` | Integer | Filter activity from this Unix timestamp in seconds (inclusive) | `1640995200` |
+| `end_time` | Integer | Filter activity until this Unix timestamp in seconds (inclusive) | `1672531200` |
+| `market_slug` | String | Filter activity by market slug | `"will-the-doj-charge-boeing"` |
+| `condition_id` | String | Filter activity by condition ID | `"0x92e4b1b8e0621fab0537486e7d527322569d7a8fd394b3098ff4bb1d6e1c0bbd"` |
+| `limit` | Integer | Number of activities to return (1-1000, default: 100) | `50` |
+| `offset` | Integer | Number of activities to skip for pagination (default: 0) | `0` |
 
 #### Market Price Parameters
 
@@ -748,3 +937,5 @@ end
 | `start_time` | Integer | Unix timestamp for start of time range (optional) | `1726857600` |
 | `end_time` | Integer | Unix timestamp for end of time range (optional) | `1758316829` |
 
+
+wen lambo? 

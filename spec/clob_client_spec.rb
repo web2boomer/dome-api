@@ -1040,5 +1040,231 @@ RSpec.describe DomeAPI do
         expect(json["pnl_over_time"].size).to eq(5)
       end
     end
+
+    describe "#get_activity" do
+      let(:user_address) { "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b" }
+      let(:mock_response) do
+        double("Net::HTTPSuccess").tap do |response|
+          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
+          allow(response).to receive(:body).and_return({
+            activities: [
+              {
+                token_id: "",
+                side: "REDEEM",
+                market_slug: "will-the-doj-charge-boeing",
+                condition_id: "0x92e4b1b8e0621fab0537486e7d527322569d7a8fd394b3098ff4bb1d6e1c0bbd",
+                shares: 187722726,
+                shares_normalized: 187.722726,
+                price: 1,
+                tx_hash: "0x028baff23a90c10728606781d15077098ee93c991ea204aa52a0bd2869187574",
+                title: "Will the DOJ charge Boeing?",
+                timestamp: 1721263049,
+                order_hash: "",
+                user: "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"
+              },
+              {
+                token_id: "",
+                side: "MERGE",
+                market_slug: "bitcoin-price-test",
+                condition_id: "0x4567b275e6b667a6217f5cb4f06a797d3a1eaf1d0281fb5bc8c75e2046ae7e57",
+                shares: 5000000,
+                shares_normalized: 5.0,
+                price: 0.75,
+                tx_hash: "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+                title: "Test Market",
+                timestamp: 1721176649,
+                order_hash: "",
+                user: "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"
+              }
+            ],
+            pagination: {
+              limit: 50,
+              offset: 0,
+              count: 1250,
+              has_more: true
+            }
+          }.to_json)
+        end
+      end
+
+      before do
+        allow(client).to receive(:make_request).and_return(mock_response)
+      end
+
+      it "fetches activity with default parameters" do
+        result = client.get_activity(user_address)
+        
+        expect(result).to be_a(DomeAPI::ActivityResponse)
+        expect(result.activities.size).to eq(2)
+        expect(result.activities.first).to be_a(DomeAPI::Order)
+        expect(result.activities.first.side).to eq("REDEEM")
+        expect(result.activities.first.shares_normalized).to eq(187.722726)
+        expect(result.pagination[:count]).to eq(1250)
+        expect(result.total_activities).to eq(1250)
+        expect(result.has_more?).to be true
+      end
+
+      it "fetches activity with custom parameters" do
+        options = {
+          market_slug: "will-the-doj-charge-boeing",
+          limit: 25,
+          offset: 10
+        }
+        
+        result = client.get_activity(user_address, options)
+        
+        expect(result).to be_a(DomeAPI::ActivityResponse)
+        expect(client).to have_received(:make_request)
+      end
+
+      it "fetches activity with time range" do
+        start_time = 1721176000
+        end_time = 1721264000
+        options = {
+          start_time: start_time,
+          end_time: end_time,
+          limit: 10
+        }
+        
+        result = client.get_activity(user_address, options)
+        
+        expect(result).to be_a(DomeAPI::ActivityResponse)
+        expect(client).to have_received(:make_request)
+      end
+
+      it "fetches activity with condition_id filter" do
+        options = {
+          condition_id: "0x92e4b1b8e0621fab0537486e7d527322569d7a8fd394b3098ff4bb1d6e1c0bbd",
+          limit: 10
+        }
+        
+        result = client.get_activity(user_address, options)
+        
+        expect(result).to be_a(DomeAPI::ActivityResponse)
+        expect(client).to have_received(:make_request)
+      end
+
+      it "validates user wallet address parameter" do
+        expect { client.get_activity(nil) }.to raise_error(ArgumentError, /Wallet address cannot be empty/)
+        expect { client.get_activity("") }.to raise_error(ArgumentError, /Wallet address cannot be empty/)
+        expect { client.get_activity("invalid") }.to raise_error(ArgumentError, /Invalid wallet address format/)
+        expect { client.get_activity("0x123") }.to raise_error(ArgumentError, /Invalid wallet address format/)
+      end
+
+      it "validates limit parameter" do
+        expect { client.get_activity(user_address, limit: 0) }.to raise_error(ArgumentError, /Limit must be between 1 and 1000/)
+        expect { client.get_activity(user_address, limit: 1001) }.to raise_error(ArgumentError, /Limit must be between 1 and 1000/)
+      end
+
+      it "validates offset parameter" do
+        expect { client.get_activity(user_address, offset: -1) }.to raise_error(ArgumentError, /Offset must be >= 0/)
+      end
+
+      it "validates time range parameters" do
+        expect { client.get_activity(user_address, start_time: -1) }.to raise_error(ArgumentError, /start_time must be a positive integer/)
+        expect { client.get_activity(user_address, end_time: -1) }.to raise_error(ArgumentError, /end_time must be a positive integer/)
+        expect { client.get_activity(user_address, start_time: 100, end_time: 50) }.to raise_error(ArgumentError, /start_time must be less than end_time/)
+      end
+
+      it "handles empty response" do
+        empty_response = double("Net::HTTPSuccess").tap do |response|
+          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
+          allow(response).to receive(:body).and_return({ activities: [], pagination: {} }.to_json)
+        end
+        
+        allow(client).to receive(:make_request).and_return(empty_response)
+        
+        result = client.get_activity(user_address)
+        expect(result.activities).to be_empty
+        expect(result.empty?).to be true
+      end
+
+      it "handles HTTP errors" do
+        error_response = double("Net::HTTPUnauthorized").tap do |response|
+          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(false)
+          allow(response).to receive(:is_a?).with(Net::HTTPUnauthorized).and_return(true)
+        end
+        
+        allow(client).to receive(:make_request).and_return(error_response)
+        
+        expect { client.get_activity(user_address) }.to raise_error(DomeAPI::Error, /Unauthorized/)
+      end
+    end
+
+    describe "ActivityResponse class" do
+      let(:activities_data) do
+        [
+          {
+            token_id: "",
+            side: "REDEEM",
+            market_slug: "will-the-doj-charge-boeing",
+            condition_id: "0x92e4b1b8e0621fab0537486e7d527322569d7a8fd394b3098ff4bb1d6e1c0bbd",
+            shares: 187722726,
+            shares_normalized: 187.722726,
+            price: 1,
+            tx_hash: "0x028baff23a90c10728606781d15077098ee93c991ea204aa52a0bd2869187574",
+            title: "Will the DOJ charge Boeing?",
+            timestamp: 1721263049,
+            order_hash: "",
+            user: "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"
+          },
+          {
+            token_id: "",
+            side: "MERGE",
+            market_slug: "bitcoin-price-test",
+            condition_id: "0x4567b275e6b667a6217f5cb4f06a797d3a1eaf1d0281fb5bc8c75e2046ae7e57",
+            shares: 5000000,
+            shares_normalized: 5.0,
+            price: 0.75,
+            tx_hash: "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            title: "Test Market",
+            timestamp: 1721176649,
+            order_hash: "",
+            user: "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"
+          }
+        ]
+      end
+
+      let(:pagination_data) do
+        {
+          limit: 50,
+          offset: 0,
+          count: 1250,
+          has_more: true
+        }
+      end
+
+      let(:response) { DomeAPI::ActivityResponse.new(activities: activities_data, pagination: pagination_data) }
+
+      it "initializes with activities and pagination" do
+        expect(response.activities.size).to eq(2)
+        expect(response.activities.first).to be_a(DomeAPI::Order)
+        expect(response.pagination).to eq(pagination_data)
+      end
+
+      it "provides pagination helpers" do
+        expect(response.total_activities).to eq(1250)
+        expect(response.limit).to eq(50)
+        expect(response.offset).to eq(0)
+        expect(response.has_more?).to be true
+      end
+
+      it "provides collection methods" do
+        expect(response.size).to eq(2)
+        expect(response.empty?).to be false
+        expect(response[0].side).to eq("REDEEM")
+        expect(response[1].side).to eq("MERGE")
+      end
+
+      it "converts to hash and JSON" do
+        hash = response.to_h
+        expect(hash[:activities].size).to eq(2)
+        expect(hash[:pagination]).to eq(pagination_data)
+        
+        json = JSON.parse(response.to_json)
+        expect(json["activities"].size).to eq(2)
+        expect(json["pagination"]).to eq(pagination_data.transform_keys(&:to_s))
+      end
+    end
   end
 end
