@@ -1266,5 +1266,359 @@ RSpec.describe DomeAPI do
         expect(json["pagination"]).to eq(pagination_data.transform_keys(&:to_s))
       end
     end
+
+    describe "#get_markets" do
+      let(:mock_response) do
+        double("Net::HTTPSuccess").tap do |response|
+          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
+          allow(response).to receive(:body).and_return({
+            markets: [
+              {
+                market_slug: "bitcoin-up-or-down-july-25-8pm-et",
+                condition_id: "0x4567b275e6b667a6217f5cb4f06a797d3a1eaf1d0281fb5bc8c75e2046ae7e57",
+                title: "Will Bitcoin be above $50,000 on July 25, 2025 at 8:00 PM ET?",
+                description: "This market will resolve to Yes if Bitcoin (BTC) is trading above $50,000 at 8:00 PM ET on July 25, 2025.",
+                outcomes: [
+                  {
+                    outcome: "Yes",
+                    token_id: "58519484510520807142687824915233722607092670035910114837910294451210534222702"
+                  },
+                  {
+                    outcome: "No",
+                    token_id: "104612081187206848956763018128517335758189185749897027211060738913329108425255"
+                  }
+                ],
+                start_time: 1757008834,
+                end_time: 1757008834,
+                volume: 1250000.5,
+                liquidity: 500000.25,
+                tags: ["crypto", "bitcoin", "price-prediction"],
+                status: "ACTIVE"
+              },
+              {
+                market_slug: "will-the-doj-charge-boeing",
+                condition_id: "0x92e4b1b8e0621fab0537486e7d527322569d7a8fd394b3098ff4bb1d6e1c0bbd",
+                title: "Will the DOJ charge Boeing?",
+                description: "This market will resolve to Yes if the DOJ charges Boeing.",
+                outcomes: [
+                  {
+                    outcome: "Yes",
+                    token_id: "1234567890123456789012345678901234567890123456789012345678901234567890"
+                  },
+                  {
+                    outcome: "No",
+                    token_id: "9876543210987654321098765432109876543210987654321098765432109876543210"
+                  }
+                ],
+                start_time: 1721263049,
+                end_time: 1721263049,
+                volume: 500000.0,
+                liquidity: 250000.0,
+                tags: ["politics", "legal"],
+                status: "ACTIVE"
+              }
+            ],
+            pagination: {
+              limit: 20,
+              offset: 0,
+              total: 150,
+              has_more: true
+            }
+          }.to_json)
+        end
+      end
+
+      before do
+        allow(client).to receive(:make_request).and_return(mock_response)
+      end
+
+      it "fetches markets with default parameters" do
+        result = client.get_markets
+        
+        expect(result).to be_a(DomeAPI::MarketsResponse)
+        expect(result.markets.size).to eq(2)
+        expect(result.markets.first).to be_a(DomeAPI::Market)
+        expect(result.markets.first.title).to eq("Will Bitcoin be above $50,000 on July 25, 2025 at 8:00 PM ET?")
+        expect(result.markets.first.status).to eq("ACTIVE")
+        expect(result.pagination[:total]).to eq(150)
+        expect(result.total_markets).to eq(150)
+        expect(result.has_more?).to be true
+      end
+
+      it "fetches markets with custom parameters" do
+        options = {
+          tags: ["crypto", "bitcoin"],
+          limit: 10,
+          offset: 0
+        }
+        
+        result = client.get_markets(options)
+        
+        expect(result).to be_a(DomeAPI::MarketsResponse)
+        expect(client).to have_received(:make_request)
+      end
+
+      it "fetches markets with market slug filter" do
+        options = {
+          market_slug: ["bitcoin-up-or-down-july-25-8pm-et"],
+          limit: 5
+        }
+        
+        result = client.get_markets(options)
+        
+        expect(result).to be_a(DomeAPI::MarketsResponse)
+        expect(client).to have_received(:make_request)
+      end
+
+      it "fetches markets with condition ID filter" do
+        options = {
+          condition_id: ["0x4567b275e6b667a6217f5cb4f06a797d3a1eaf1d0281fb5bc8c75e2046ae7e57"],
+          limit: 5
+        }
+        
+        result = client.get_markets(options)
+        
+        expect(result).to be_a(DomeAPI::MarketsResponse)
+        expect(client).to have_received(:make_request)
+      end
+
+      it "validates limit parameter" do
+        expect { client.get_markets(limit: 0) }.to raise_error(ArgumentError, /Limit must be between 1 and 100/)
+        expect { client.get_markets(limit: 101) }.to raise_error(ArgumentError, /Limit must be between 1 and 100/)
+      end
+
+      it "validates offset parameter" do
+        expect { client.get_markets(offset: -1) }.to raise_error(ArgumentError, /Offset must be >= 0/)
+      end
+
+      it "validates array parameters" do
+        expect { client.get_markets(market_slug: "not-an-array") }.to raise_error(ArgumentError, /market_slug must be an array/)
+        expect { client.get_markets(event_slug: "not-an-array") }.to raise_error(ArgumentError, /event_slug must be an array/)
+        expect { client.get_markets(condition_id: "not-an-array") }.to raise_error(ArgumentError, /condition_id must be an array/)
+        expect { client.get_markets(tags: "not-an-array") }.to raise_error(ArgumentError, /tags must be an array/)
+      end
+
+      it "handles empty response" do
+        empty_response = double("Net::HTTPSuccess").tap do |response|
+          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
+          allow(response).to receive(:body).and_return({ markets: [], pagination: {} }.to_json)
+        end
+        
+        allow(client).to receive(:make_request).and_return(empty_response)
+        
+        result = client.get_markets
+        expect(result.markets).to be_empty
+        expect(result.empty?).to be true
+      end
+
+      it "handles HTTP errors" do
+        error_response = double("Net::HTTPUnauthorized").tap do |response|
+          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(false)
+          allow(response).to receive(:is_a?).with(Net::HTTPUnauthorized).and_return(true)
+        end
+        
+        allow(client).to receive(:make_request).and_return(error_response)
+        
+        expect { client.get_markets }.to raise_error(DomeAPI::Error, /Unauthorized/)
+      end
+    end
+
+    describe "Outcome class" do
+      let(:outcome_data) do
+        {
+          outcome: "Yes",
+          token_id: "58519484510520807142687824915233722607092670035910114837910294451210534222702"
+        }
+      end
+
+      let(:outcome) { DomeAPI::Outcome.new(outcome_data) }
+
+      it "initializes with correct attributes" do
+        expect(outcome.outcome).to eq("Yes")
+        expect(outcome.token_id).to eq("58519484510520807142687824915233722607092670035910114837910294451210534222702")
+      end
+
+      it "identifies yes outcomes" do
+        expect(outcome.yes?).to be true
+        expect(outcome.no?).to be false
+      end
+
+      it "identifies no outcomes" do
+        no_outcome = DomeAPI::Outcome.new(outcome_data.merge(outcome: "No"))
+        expect(no_outcome.no?).to be true
+        expect(no_outcome.yes?).to be false
+      end
+
+      it "converts to hash and JSON" do
+        expect(outcome.to_h).to eq(outcome_data)
+        expect(JSON.parse(outcome.to_json)).to eq(outcome_data.transform_keys(&:to_s))
+      end
+    end
+
+    describe "Market class" do
+      let(:market_data) do
+        {
+          market_slug: "bitcoin-up-or-down-july-25-8pm-et",
+          condition_id: "0x4567b275e6b667a6217f5cb4f06a797d3a1eaf1d0281fb5bc8c75e2046ae7e57",
+          title: "Will Bitcoin be above $50,000 on July 25, 2025 at 8:00 PM ET?",
+          description: "This market will resolve to Yes if Bitcoin (BTC) is trading above $50,000 at 8:00 PM ET on July 25, 2025.",
+          outcomes: [
+            {
+              outcome: "Yes",
+              token_id: "58519484510520807142687824915233722607092670035910114837910294451210534222702"
+            },
+            {
+              outcome: "No",
+              token_id: "104612081187206848956763018128517335758189185749897027211060738913329108425255"
+            }
+          ],
+          start_time: 1757008834,
+          end_time: 1757008834,
+          volume: 1250000.5,
+          liquidity: 500000.25,
+          tags: ["crypto", "bitcoin", "price-prediction"],
+          status: "ACTIVE"
+        }
+      end
+
+      let(:market) { DomeAPI::Market.new(market_data) }
+
+      it "initializes with correct attributes" do
+        expect(market.market_slug).to eq("bitcoin-up-or-down-july-25-8pm-et")
+        expect(market.title).to eq("Will Bitcoin be above $50,000 on July 25, 2025 at 8:00 PM ET?")
+        expect(market.volume).to eq(1250000.5)
+        expect(market.liquidity).to eq(500000.25)
+        expect(market.tags).to eq(["crypto", "bitcoin", "price-prediction"])
+        expect(market.status).to eq("ACTIVE")
+      end
+
+      it "provides outcome access" do
+        expect(market.outcomes.size).to eq(2)
+        expect(market.outcomes.first).to be_a(DomeAPI::Outcome)
+        expect(market.yes_outcome).to be_a(DomeAPI::Outcome)
+        expect(market.no_outcome).to be_a(DomeAPI::Outcome)
+        expect(market.yes_token_id).to eq("58519484510520807142687824915233722607092670035910114837910294451210534222702")
+        expect(market.no_token_id).to eq("104612081187206848956763018128517335758189185749897027211060738913329108425255")
+      end
+
+      it "identifies market status" do
+        expect(market.active?).to be true
+        expect(market.closed?).to be false
+        expect(market.resolved?).to be false
+      end
+
+      it "provides time conversion" do
+        expect(market.start_date).to be_a(Time)
+        expect(market.end_date).to be_a(Time)
+        expect(market.formatted_start_date).to match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC/)
+        expect(market.formatted_end_date).to match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC/)
+      end
+
+      it "provides tag checking" do
+        expect(market.has_tag?("crypto")).to be true
+        expect(market.has_tag?("bitcoin")).to be true
+        expect(market.has_tag?("politics")).to be false
+        expect(market.crypto_market?).to be true
+        expect(market.politics_market?).to be false
+      end
+
+      it "converts to hash and JSON" do
+        expect(market.to_h).to be_a(Hash)
+        expect(market.to_h[:market_slug]).to eq("bitcoin-up-or-down-july-25-8pm-et")
+        expect(JSON.parse(market.to_json)).to be_a(Hash)
+      end
+    end
+
+    describe "MarketsResponse class" do
+      let(:markets_data) do
+        [
+          {
+            market_slug: "bitcoin-up-or-down-july-25-8pm-et",
+            condition_id: "0x4567b275e6b667a6217f5cb4f06a797d3a1eaf1d0281fb5bc8c75e2046ae7e57",
+            title: "Will Bitcoin be above $50,000 on July 25, 2025 at 8:00 PM ET?",
+            description: "This market will resolve to Yes if Bitcoin (BTC) is trading above $50,000 at 8:00 PM ET on July 25, 2025.",
+            outcomes: [
+              {
+                outcome: "Yes",
+                token_id: "58519484510520807142687824915233722607092670035910114837910294451210534222702"
+              },
+              {
+                outcome: "No",
+                token_id: "104612081187206848956763018128517335758189185749897027211060738913329108425255"
+              }
+            ],
+            start_time: 1757008834,
+            end_time: 1757008834,
+            volume: 1250000.5,
+            liquidity: 500000.25,
+            tags: ["crypto", "bitcoin", "price-prediction"],
+            status: "ACTIVE"
+          },
+          {
+            market_slug: "will-the-doj-charge-boeing",
+            condition_id: "0x92e4b1b8e0621fab0537486e7d527322569d7a8fd394b3098ff4bb1d6e1c0bbd",
+            title: "Will the DOJ charge Boeing?",
+            description: "This market will resolve to Yes if the DOJ charges Boeing.",
+            outcomes: [
+              {
+                outcome: "Yes",
+                token_id: "1234567890123456789012345678901234567890123456789012345678901234567890"
+              },
+              {
+                outcome: "No",
+                token_id: "9876543210987654321098765432109876543210987654321098765432109876543210"
+              }
+            ],
+            start_time: 1721263049,
+            end_time: 1721263049,
+            volume: 500000.0,
+            liquidity: 250000.0,
+            tags: ["politics", "legal"],
+            status: "ACTIVE"
+          }
+        ]
+      end
+
+      let(:pagination_data) do
+        {
+          limit: 20,
+          offset: 0,
+          total: 150,
+          has_more: true
+        }
+      end
+
+      let(:response) { DomeAPI::MarketsResponse.new(markets: markets_data, pagination: pagination_data) }
+
+      it "initializes with markets and pagination" do
+        expect(response.markets.size).to eq(2)
+        expect(response.markets.first).to be_a(DomeAPI::Market)
+        expect(response.pagination).to eq(pagination_data)
+      end
+
+      it "provides pagination helpers" do
+        expect(response.total_markets).to eq(150)
+        expect(response.limit).to eq(20)
+        expect(response.offset).to eq(0)
+        expect(response.has_more?).to be true
+      end
+
+      it "provides collection methods" do
+        expect(response.size).to eq(2)
+        expect(response.empty?).to be false
+        expect(response[0].market_slug).to eq("bitcoin-up-or-down-july-25-8pm-et")
+        expect(response[1].market_slug).to eq("will-the-doj-charge-boeing")
+      end
+
+      it "converts to hash and JSON" do
+        hash = response.to_h
+        expect(hash[:markets].size).to eq(2)
+        expect(hash[:pagination]).to eq(pagination_data)
+        
+        json = JSON.parse(response.to_json)
+        expect(json["markets"].size).to eq(2)
+        expect(json["pagination"]).to eq(pagination_data.transform_keys(&:to_s))
+      end
+    end
   end
 end

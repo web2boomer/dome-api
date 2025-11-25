@@ -50,6 +50,26 @@ module DomeAPI
       response = make_request(uri)
       
       parse_activity_response(response)
+    end
+
+    # Fetches markets data with optional filtering
+    # @param options [Hash] Query parameters for filtering markets
+    # @option options [Array<String>] :market_slug Filter markets by market slug(s)
+    # @option options [Array<String>] :event_slug Filter markets by event slug(s)
+    # @option options [Array<String>] :condition_id Filter markets by condition ID(s)
+    # @option options [Array<String>] :tags Filter markets by tag(s)
+    # @option options [String] :status Filter markets by status ("open" or "closed")
+    # @option options [Numeric] :min_volume Filter markets with total trading volume greater than or equal to this amount (USD)
+    # @option options [Integer] :limit Number of markets to return (1-100, default: 10)
+    # @option options [Integer] :offset Number of markets to skip for pagination (default: 0)
+    # @return [MarketsResponse] Response containing markets array and pagination info
+    def get_markets(options = {})
+      validate_markets_params(options)
+      
+      uri = build_markets_uri(options)
+      response = make_request(uri)
+      
+      parse_markets_response(response)
     end    
 
     # Fetches the current market price for a market by token_id
@@ -206,6 +226,33 @@ module DomeAPI
       end
     end
 
+    def validate_markets_params(options)
+      if options[:limit] && (options[:limit] < 1 || options[:limit] > 100)
+        raise ArgumentError, "Limit must be between 1 and 100"
+      end
+      
+      if options[:offset] && options[:offset] < 0
+        raise ArgumentError, "Offset must be >= 0"
+      end
+      
+      # Validate array parameters
+      [:market_slug, :event_slug, :condition_id, :tags].each do |param|
+        if options[param] && !options[param].is_a?(Array)
+          raise ArgumentError, "#{param} must be an array"
+        end
+      end
+      
+      # Validate status parameter
+      if options[:status] && !%w[open closed].include?(options[:status].to_s)
+        raise ArgumentError, "status must be either 'open' or 'closed'"
+      end
+      
+      # Validate min_volume parameter
+      if options[:min_volume] && (!options[:min_volume].is_a?(Numeric) || options[:min_volume] < 0)
+        raise ArgumentError, "min_volume must be a non-negative number"
+      end
+    end
+
     def build_order_history_uri(options)
       uri = URI("#{BASE_URL}/polymarket/orders")
       params = {}
@@ -275,6 +322,28 @@ module DomeAPI
       params[:offset] = options[:offset] || 0
       
       uri.query = URI.encode_www_form(params)
+      uri
+    end
+
+    def build_markets_uri(options)
+      uri = URI("#{BASE_URL}/polymarket/markets")
+      params = {}
+      
+      # Array parameters - join with commas
+      params[:market_slug] = options[:market_slug].join(',') if options[:market_slug]&.any?
+      params[:event_slug] = options[:event_slug].join(',') if options[:event_slug]&.any?
+      params[:condition_id] = options[:condition_id].join(',') if options[:condition_id]&.any?
+      params[:tags] = options[:tags].join(',') if options[:tags]&.any?
+      
+      # Single value parameters
+      params[:status] = options[:status] if options[:status]
+      params[:min_volume] = options[:min_volume] if options[:min_volume]
+      
+      # Pagination parameters
+      params[:limit] = options[:limit] || 10
+      params[:offset] = options[:offset] || 0
+      
+      uri.query = URI.encode_www_form(params) unless params.empty?
       uri
     end
 
@@ -369,6 +438,15 @@ module DomeAPI
       
       ActivityResponse.new(
         activities: data[:activities] || [],
+        pagination: data[:pagination] || {}
+      )
+    end
+
+    def parse_markets_response(response)
+      data = JSON.parse(response.body, symbolize_names: true)
+      
+      MarketsResponse.new(
+        markets: data[:markets] || [],
         pagination: data[:pagination] || {}
       )
     end
