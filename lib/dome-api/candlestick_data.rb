@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'time'
+
 module DomeAPI
   class CandlestickData
     attr_reader :end_period_ts, :open_interest, :volume, :price, :yes_ask, :yes_bid

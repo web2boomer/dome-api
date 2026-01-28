@@ -25,6 +25,11 @@ module DomeAPI
       pagination[:has_more] || false
     end
 
+    # Base64-encoded cursor for the next page. Use this in the next request as pagination_key.
+    def pagination_key
+      pagination[:pagination_key]
+    end
+
     def empty?
       orders.empty?
     end

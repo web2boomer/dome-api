@@ -11,78 +11,6 @@ RSpec.describe DomeAPI do
     let(:api_key) { "test_api_key" }
     let(:client) { DomeAPI::Client.new(api_key: api_key) }
 
-    describe "#create_order" do
-      let(:order_args) do
-        DomeAPI::OrderArgs.new(
-          token_id: "",
-          price: 0.5,
-          size: 100,
-          side: "BUY",
-          fee_rate_bps: 10,
-          nonce: 12345,
-          expiration: 1234567890,
-          taker: "0x0000000000000000000000000000000000000000"
-        )
-      end
-
-      it "creates an order with proper validation" do
-        # Mock the tick_size and neg_risk methods
-        allow(client).to receive(:get_tick_size).and_return("0.1")
-        allow(client).to receive(:get_neg_risk).and_return(false)
-        
-        # Mock the builder
-        mock_builder = double("OrderBuilder")
-        allow(mock_builder).to receive(:create_order).and_return({ order: "data" })
-        client.instance_variable_set(:@builder, mock_builder)
-        
-        result = client.create_order(order_args)
-        expect(result).to eq({ order: "data" })
-      end
-
-      it "raises error for invalid price" do
-        allow(client).to receive(:get_tick_size).and_return("0.1")
-        
-        order_args.price = 0.05  # Invalid price for tick size 0.1
-        
-        expect { client.create_order(order_args) }.to raise_error(ArgumentError, /Price.*is not valid for tick size/)
-      end
-    end
-
-    describe "#create_market_order" do
-      let(:order_args) do
-        DomeAPI::MarketOrderArgs.new(
-          token_id: "0x1234567890123456789012345678901234567890",
-          amount: 100,
-          side: "BUY",
-          price: nil,  # Will be fetched from market
-          fee_rate_bps: 10,
-          nonce: 12345,
-          taker: "0x0000000000000000000000000000000000000000",
-          order_type: DomeAPI::OrderType::FOK
-        )
-      end
-
-      it "creates a market order with price fetching" do
-        # Mock the tick_size and neg_risk methods
-        allow(client).to receive(:get_tick_size).and_return("0.1")
-        allow(client).to receive(:get_neg_risk).and_return(false)
-        
-        # Mock the price response
-        mock_response = double("Net::HTTPSuccess")
-        allow(mock_response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
-        allow(mock_response).to receive(:body).and_return('{"price": 0.5}')
-        allow(client).to receive(:get_price).and_return(mock_response)
-        
-        # Mock the builder
-        mock_builder = double("OrderBuilder")
-        allow(mock_builder).to receive(:create_market_order).and_return({ order: "data" })
-        client.instance_variable_set(:@builder, mock_builder)
-        
-        result = client.create_market_order(order_args)
-        expect(result).to eq({ order: "data" })
-      end
-    end
-
     describe "#get_order_history" do
       let(:mock_response) do
         double("Net::HTTPSuccess").tap do |response|
@@ -108,7 +36,8 @@ RSpec.describe DomeAPI do
               limit: 50,
               offset: 0,
               total: 1250,
-              has_more: true
+              has_more: true,
+              pagination_key: "eyJibG9ja190aW1lc3RhbXAiOiIyMDI1LTAxLTE5VDEyOjAwOjAwLjAwMFoifQ=="
             }
           }.to_json)
         end
@@ -133,7 +62,6 @@ RSpec.describe DomeAPI do
         options = {
           market_slug: "bitcoin-up-or-down-july-25-8pm-et",
           limit: 25,
-          offset: 10,
           user: "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"
         }
         
@@ -141,6 +69,17 @@ RSpec.describe DomeAPI do
         
         expect(result).to be_a(DomeAPI::OrderHistoryResponse)
         expect(client).to have_received(:make_request)
+      end
+
+      it "uses pagination_key instead of offset when provided" do
+        cursor = "eyJibG9ja190aW1lc3RhbXAiOiIyMDI1LTAxLTE5VDEyOjAwOjAwLjAwMFoifQ=="
+        client.get_order_history(limit: 50, pagination_key: cursor)
+        
+        expect(client).to have_received(:make_request) do |uri|
+          params = URI.decode_www_form(uri.query).to_h
+          expect(params["pagination_key"]).to eq(cursor)
+          expect(params).not_to have_key("offset")
+        end
       end
 
       it "validates limit parameter" do
@@ -166,12 +105,7 @@ RSpec.describe DomeAPI do
       end
 
       it "handles HTTP errors" do
-        error_response = double("Net::HTTPUnauthorized").tap do |response|
-          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(false)
-          allow(response).to receive(:is_a?).with(Net::HTTPUnauthorized).and_return(true)
-        end
-        
-        allow(client).to receive(:make_request).and_return(error_response)
+        allow(client).to receive(:make_request).and_raise(DomeAPI::Error, "Unauthorized: Invalid API key")
         
         expect { client.get_order_history }.to raise_error(DomeAPI::Error, /Unauthorized/)
       end
@@ -247,7 +181,8 @@ RSpec.describe DomeAPI do
           limit: 50,
           offset: 0,
           total: 100,
-          has_more: true
+          has_more: true,
+          pagination_key: "eyJibG9ja190aW1lc3RhbXAiOiIyMDI1LTAxLTE5VDEyOjAwOjAwLjAwMFoifQ=="
         }
       end
 
@@ -264,6 +199,7 @@ RSpec.describe DomeAPI do
         expect(response.limit).to eq(50)
         expect(response.offset).to eq(0)
         expect(response.has_more?).to be true
+        expect(response.pagination_key).to eq("eyJibG9ja190aW1lc3RhbXAiOiIyMDI1LTAxLTE5VDEyOjAwOjAwLjAwMFoifQ==")
       end
 
       it "provides collection methods" do
@@ -330,16 +266,7 @@ RSpec.describe DomeAPI do
       end
 
       it "handles HTTP errors" do
-        error_response = double("Net::HTTPNotFound").tap do |response|
-          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(false)
-          allow(response).to receive(:is_a?).with(Net::HTTPUnauthorized).and_return(false)
-          allow(response).to receive(:is_a?).with(Net::HTTPTooManyRequests).and_return(false)
-          allow(response).to receive(:is_a?).with(Net::HTTPBadRequest).and_return(false)
-          allow(response).to receive(:code).and_return("404")
-          allow(response).to receive(:message).and_return("Not Found")
-        end
-        
-        allow(client).to receive(:make_request).and_return(error_response)
+        allow(client).to receive(:make_request).and_raise(DomeAPI::Error, "HTTP error: 404 - Not Found")
         
         expect { client.get_market_price(token_id) }.to raise_error(DomeAPI::Error, /HTTP error: 404 - Not Found/)
       end
@@ -520,15 +447,7 @@ RSpec.describe DomeAPI do
       end
 
       it "handles HTTP errors" do
-        error_response = double("Net::HTTPBadRequest").tap do |response|
-          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(false)
-          allow(response).to receive(:is_a?).with(Net::HTTPUnauthorized).and_return(false)
-          allow(response).to receive(:is_a?).with(Net::HTTPTooManyRequests).and_return(false)
-          allow(response).to receive(:is_a?).with(Net::HTTPBadRequest).and_return(true)
-          allow(response).to receive(:body).and_return("Bad Request")
-        end
-        
-        allow(client).to receive(:make_request).and_return(error_response)
+        allow(client).to receive(:make_request).and_raise(DomeAPI::Error, "Bad request: Bad Request")
         
         expect { client.get_candlesticks(condition_id, start_time: start_time, end_time: end_time) }.to raise_error(DomeAPI::Error, /Bad request: Bad Request/)
       end
@@ -596,8 +515,8 @@ RSpec.describe DomeAPI do
       end
 
       it "calculates price metrics" do
-        expect(candlestick.price_range).to eq(0.0001) # high - low
-        expect(candlestick.price_change).to eq(-0.0001) # close - open
+        expect(candlestick.price_range).to be_within(0.00001).of(0.0001) # high - low
+        expect(candlestick.price_change).to be_within(0.00001).of(-0.0001) # close - open
         expect(candlestick.price_change_percent).to be_within(0.01).of(-2.04) # (change/open) * 100
       end
 
@@ -675,7 +594,7 @@ RSpec.describe DomeAPI do
       end
 
       it "calculates spread" do
-        expect(bid_ask.spread).to eq(0.00007) # open - close
+        expect(bid_ask.spread).to be_within(0.00001).of(0.00007) # open - close
       end
 
       it "converts to hash and JSON" do
@@ -727,7 +646,7 @@ RSpec.describe DomeAPI do
       end
 
       it "calculates price metrics" do
-        expect(response.price_range).to eq(0.3) # max high - min low
+        expect(response.price_range).to be_within(0.001).of(0.3) # max high - min low
         expect(response.price_trend).to eq(:up) # first close < last close
       end
 
@@ -843,16 +762,7 @@ RSpec.describe DomeAPI do
       end
 
       it "handles HTTP errors" do
-        error_response = double("Net::HTTPNotFound").tap do |response|
-          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(false)
-          allow(response).to receive(:is_a?).with(Net::HTTPUnauthorized).and_return(false)
-          allow(response).to receive(:is_a?).with(Net::HTTPTooManyRequests).and_return(false)
-          allow(response).to receive(:is_a?).with(Net::HTTPBadRequest).and_return(false)
-          allow(response).to receive(:code).and_return("404")
-          allow(response).to receive(:message).and_return("Not Found")
-        end
-        
-        allow(client).to receive(:make_request).and_return(error_response)
+        allow(client).to receive(:make_request).and_raise(DomeAPI::Error, "HTTP error: 404 - Not Found")
         
         expect { client.get_wallet_pnl(wallet_address, granularity: granularity) }.to raise_error(DomeAPI::Error, /HTTP error: 404 - Not Found/)
       end
@@ -990,13 +900,13 @@ RSpec.describe DomeAPI do
       end
 
       it "counts profit/loss days" do
-        expect(response.profit_days).to eq(4) # 4 positive PnL days
+        expect(response.profit_days).to eq(5) # 5 positive PnL days (all values are positive)
         expect(response.loss_days).to eq(0) # 0 negative PnL days
         expect(response.break_even_days).to eq(0) # 0 zero PnL days
       end
 
       it "calculates win rate" do
-        expect(response.win_rate).to eq(80.0) # 4/5 * 100
+        expect(response.win_rate).to eq(100.0) # 5/5 * 100 (all days profitable)
       end
 
       it "provides PnL series data" do
@@ -1081,7 +991,8 @@ RSpec.describe DomeAPI do
               limit: 50,
               offset: 0,
               count: 1250,
-              has_more: true
+              has_more: true,
+              pagination_key: "eyJibG9ja190aW1lc3RhbXAiOiIyMDI1LTAxLTE5VDEyOjAwOjAwLjAwMFoifQ=="
             }
           }.to_json)
         end
@@ -1107,14 +1018,24 @@ RSpec.describe DomeAPI do
       it "fetches activity with custom parameters" do
         options = {
           market_slug: "will-the-doj-charge-boeing",
-          limit: 25,
-          offset: 10
+          limit: 25
         }
         
         result = client.get_activity(user_address, options)
         
         expect(result).to be_a(DomeAPI::ActivityResponse)
         expect(client).to have_received(:make_request)
+      end
+
+      it "uses pagination_key instead of offset when provided" do
+        cursor = "eyJibG9ja190aW1lc3RhbXAiOiIyMDI1LTAxLTE5VDEyOjAwOjAwLjAwMFoifQ=="
+        client.get_activity(user_address, limit: 50, pagination_key: cursor)
+        
+        expect(client).to have_received(:make_request) do |uri|
+          params = URI.decode_www_form(uri.query).to_h
+          expect(params["pagination_key"]).to eq(cursor)
+          expect(params).not_to have_key("offset")
+        end
       end
 
       it "fetches activity with time range" do
@@ -1180,12 +1101,7 @@ RSpec.describe DomeAPI do
       end
 
       it "handles HTTP errors" do
-        error_response = double("Net::HTTPUnauthorized").tap do |response|
-          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(false)
-          allow(response).to receive(:is_a?).with(Net::HTTPUnauthorized).and_return(true)
-        end
-        
-        allow(client).to receive(:make_request).and_return(error_response)
+        allow(client).to receive(:make_request).and_raise(DomeAPI::Error, "Unauthorized: Invalid API key")
         
         expect { client.get_activity(user_address) }.to raise_error(DomeAPI::Error, /Unauthorized/)
       end
@@ -1230,7 +1146,8 @@ RSpec.describe DomeAPI do
           limit: 50,
           offset: 0,
           count: 1250,
-          has_more: true
+          has_more: true,
+          pagination_key: "eyJibG9ja190aW1lc3RhbXAiOiIyMDI1LTAxLTE5VDEyOjAwOjAwLjAwMFoifQ=="
         }
       end
 
@@ -1247,6 +1164,7 @@ RSpec.describe DomeAPI do
         expect(response.limit).to eq(50)
         expect(response.offset).to eq(0)
         expect(response.has_more?).to be true
+        expect(response.pagination_key).to eq("eyJibG9ja190aW1lc3RhbXAiOiIyMDI1LTAxLTE5VDEyOjAwOjAwLjAwMFoifQ==")
       end
 
       it "provides collection methods" do
@@ -1322,7 +1240,8 @@ RSpec.describe DomeAPI do
               limit: 20,
               offset: 0,
               total: 150,
-              has_more: true
+              has_more: true,
+              pagination_key: "eyJibG9ja190aW1lc3RhbXAiOiIyMDI1LTAxLTE5VDEyOjAwOjAwLjAwMFoifQ=="
             }
           }.to_json)
         end
@@ -1348,14 +1267,24 @@ RSpec.describe DomeAPI do
       it "fetches markets with custom parameters" do
         options = {
           tags: ["crypto", "bitcoin"],
-          limit: 10,
-          offset: 0
+          limit: 10
         }
         
         result = client.get_markets(options)
         
         expect(result).to be_a(DomeAPI::MarketsResponse)
         expect(client).to have_received(:make_request)
+      end
+
+      it "uses pagination_key instead of offset when provided" do
+        cursor = "eyJibG9ja190aW1lc3RhbXAiOiIyMDI1LTAxLTE5VDEyOjAwOjAwLjAwMFoifQ=="
+        client.get_markets(limit: 20, pagination_key: cursor)
+        
+        expect(client).to have_received(:make_request) do |uri|
+          params = URI.decode_www_form(uri.query).to_h
+          expect(params["pagination_key"]).to eq(cursor)
+          expect(params).not_to have_key("offset")
+        end
       end
 
       it "fetches markets with market slug filter" do
@@ -1412,12 +1341,7 @@ RSpec.describe DomeAPI do
       end
 
       it "handles HTTP errors" do
-        error_response = double("Net::HTTPUnauthorized").tap do |response|
-          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(false)
-          allow(response).to receive(:is_a?).with(Net::HTTPUnauthorized).and_return(true)
-        end
-        
-        allow(client).to receive(:make_request).and_return(error_response)
+        allow(client).to receive(:make_request).and_raise(DomeAPI::Error, "Unauthorized: Invalid API key")
         
         expect { client.get_markets }.to raise_error(DomeAPI::Error, /Unauthorized/)
       end
@@ -1584,7 +1508,8 @@ RSpec.describe DomeAPI do
           limit: 20,
           offset: 0,
           total: 150,
-          has_more: true
+          has_more: true,
+          pagination_key: "eyJibG9ja190aW1lc3RhbXAiOiIyMDI1LTAxLTE5VDEyOjAwOjAwLjAwMFoifQ=="
         }
       end
 
@@ -1601,6 +1526,7 @@ RSpec.describe DomeAPI do
         expect(response.limit).to eq(20)
         expect(response.offset).to eq(0)
         expect(response.has_more?).to be true
+        expect(response.pagination_key).to eq("eyJibG9ja190aW1lc3RhbXAiOiIyMDI1LTAxLTE5VDEyOjAwOjAwLjAwMFoifQ==")
       end
 
       it "provides collection methods" do

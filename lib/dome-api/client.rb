@@ -7,7 +7,7 @@ module DomeAPI
   class Client
     BASE_URL = 'https://api.domeapi.io/v1'
     
-    def initialize(api_key: nil)
+    def initialize(api_key: ENV['DOME_API_KEY'])
       @api_key = api_key
     end
 
@@ -19,7 +19,8 @@ module DomeAPI
     # @option options [Integer] :start_time Filter orders from this Unix timestamp in seconds (inclusive)
     # @option options [Integer] :end_time Filter orders until this Unix timestamp in seconds (inclusive)
     # @option options [Integer] :limit Number of orders to return (1-1000, default: 100)
-    # @option options [Integer] :offset Number of orders to skip for pagination (default: 0)
+    # @option options [String] :pagination_key Base64-encoded cursor for next page (use instead of offset; from previous response)
+    # @option options [Integer] :offset Number of orders to skip (deprecated for large values; use pagination_key when available)
     # @option options [String] :user Filter orders by user (wallet address)
     # @return [OrderHistoryResponse] Response containing orders array and pagination info
     def get_order_history(options = {})
@@ -40,7 +41,8 @@ module DomeAPI
     # @option options [String] :market_slug Filter activity by market slug
     # @option options [String] :condition_id Filter activity by condition ID
     # @option options [Integer] :limit Number of activities to return (1-1000, default: 100)
-    # @option options [Integer] :offset Number of activities to skip for pagination (default: 0)
+    # @option options [String] :pagination_key Base64-encoded cursor for next page (use instead of offset; from previous response)
+    # @option options [Integer] :offset Number of activities to skip (deprecated for large values; use pagination_key when available)
     # @return [ActivityResponse] Response containing activities array and pagination info
     def get_activity(user, options = {})
       validate_wallet_address(user)
@@ -61,7 +63,8 @@ module DomeAPI
     # @option options [String] :status Filter markets by status ("open" or "closed")
     # @option options [Numeric] :min_volume Filter markets with total trading volume greater than or equal to this amount (USD)
     # @option options [Integer] :limit Number of markets to return (1-100, default: 10)
-    # @option options [Integer] :offset Number of markets to skip for pagination (default: 0)
+    # @option options [String] :pagination_key Base64-encoded cursor for next page (use instead of offset; from previous response)
+    # @option options [Integer] :offset Number of markets to skip (deprecated for large values; use pagination_key when available)
     # @return [MarketsResponse] Response containing markets array and pagination info
     def get_markets(options = {})
       validate_markets_params(options)
@@ -265,8 +268,11 @@ module DomeAPI
       params[:end_time] = options[:end_time] if options[:end_time]
       params[:user] = options[:user] if options[:user]
       params[:limit] = options[:limit] || 100
-      params[:offset] = options[:offset] || 0
-      params[:user] = options[:user] if options[:user]
+      if options[:pagination_key]
+        params[:pagination_key] = options[:pagination_key]
+      else
+        params[:offset] = options[:offset] || 0
+      end
       
       uri.query = URI.encode_www_form(params) unless params.empty?
       uri
@@ -319,7 +325,11 @@ module DomeAPI
       params[:market_slug] = options[:market_slug] if options[:market_slug]
       params[:condition_id] = options[:condition_id] if options[:condition_id]
       params[:limit] = options[:limit] || 100
-      params[:offset] = options[:offset] || 0
+      if options[:pagination_key]
+        params[:pagination_key] = options[:pagination_key]
+      else
+        params[:offset] = options[:offset] || 0
+      end
       
       uri.query = URI.encode_www_form(params)
       uri
@@ -341,7 +351,11 @@ module DomeAPI
       
       # Pagination parameters
       params[:limit] = options[:limit] || 10
-      params[:offset] = options[:offset] || 0
+      if options[:pagination_key]
+        params[:pagination_key] = options[:pagination_key]
+      else
+        params[:offset] = options[:offset] || 0
+      end
       
       uri.query = URI.encode_www_form(params) unless params.empty?
       uri

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'time'
+
 module DomeAPI
   class PnLData
     attr_reader :timestamp, :pnl_to_date

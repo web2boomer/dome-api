@@ -37,8 +37,7 @@ def activity_example
     user_address = "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"
     options = {
       market_slug: "will-the-doj-charge-boeing",
-      limit: 10,
-      offset: 0
+      limit: 10
     }
     
     response = client.get_activity(user_address, options)
@@ -104,23 +103,27 @@ def activity_example
   
   puts "\n" + "="*50 + "\n"
   
-  # Example 5: Pagination example
+  # Example 5: Pagination example (cursor-based via pagination_key)
   puts "5. Pagination example..."
   begin
     user_address = "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"
-    offset = 0
     limit = 3
     total_processed = 0
+    page = 0
+    pagination_key = nil
     
     loop do
-      response = client.get_activity(user_address, limit: limit, offset: offset)
+      options = { limit: limit }
+      options[:pagination_key] = pagination_key if pagination_key
+      response = client.get_activity(user_address, options)
       break if response.activities.empty?
       
-      puts "   Page #{offset / limit + 1}: Processing #{response.activities.size} activities"
+      page += 1
+      puts "   Page #{page}: Processing #{response.activities.size} activities"
       total_processed += response.activities.size
       
-      break unless response.has_more?
-      offset += limit
+      break unless response.has_more? && response.pagination_key
+      pagination_key = response.pagination_key
     end
     
     puts "   Total activities processed: #{total_processed}"

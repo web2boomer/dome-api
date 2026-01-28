@@ -34,7 +34,6 @@ def order_history_example
     options = {
       market_slug: "bitcoin-up-or-down-july-25-8pm-et",
       limit: 10,
-      offset: 0,
       user: "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"
     }
     
@@ -76,22 +75,26 @@ def order_history_example
   
   puts "\n" + "="*50 + "\n"
   
-  # Example 4: Pagination example
+  # Example 4: Pagination example (cursor-based via pagination_key)
   puts "4. Pagination example..."
   begin
-    offset = 0
     limit = 3
     total_processed = 0
+    page = 0
+    pagination_key = nil
     
     loop do
-      response = client.get_order_history(limit: limit, offset: offset)
+      options = { limit: limit }
+      options[:pagination_key] = pagination_key if pagination_key
+      response = client.get_order_history(options)
       break if response.orders.empty?
       
-      puts "   Page #{offset / limit + 1}: Processing #{response.orders.size} orders"
+      page += 1
+      puts "   Page #{page}: Processing #{response.orders.size} orders"
       total_processed += response.orders.size
       
-      break unless response.has_more?
-      offset += limit
+      break unless response.has_more? && response.pagination_key
+      pagination_key = response.pagination_key
     end
     
     puts "   Total orders processed: #{total_processed}"

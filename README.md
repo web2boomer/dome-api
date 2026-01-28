@@ -36,7 +36,7 @@ The gem provides access to the Dome API's Order History endpoint, allowing you t
 #### Basic Usage
 
 ```ruby
-# Get all orders with default parameters (limit: 100, offset: 0)
+# Get all orders with default parameters (limit: 100)
 response = client.get_order_history
 
 # Access the orders
@@ -84,19 +84,23 @@ response = client.get_order_history(
 
 #### Pagination
 
+Pagination uses a cursor-based `pagination_key` (from the [Dome API](https://docs.domeapi.io/api-reference/endpoint/get-trade-history)). Use `response.pagination_key` for the next page; `offset` is deprecated for large values.
+
 ```ruby
 # Get first page
-response = client.get_order_history(limit: 50, offset: 0)
+response = client.get_order_history(limit: 50)
 
-# Get second page
-response = client.get_order_history(limit: 50, offset: 50)
+# Get next page using cursor from previous response
+response = client.get_order_history(limit: 50, pagination_key: response.pagination_key) if response.pagination_key
 
 # Loop through all pages
-offset = 0
 limit = 100
+pagination_key = nil
 
 loop do
-  response = client.get_order_history(limit: limit, offset: offset)
+  options = { limit: limit }
+  options[:pagination_key] = pagination_key if pagination_key
+  response = client.get_order_history(options)
   break if response.orders.empty?
   
   # Process orders
@@ -104,8 +108,8 @@ loop do
     puts "Processing order: #{order.order_hash}"
   end
   
-  break unless response.has_more?
-  offset += limit
+  break unless response.has_more? && response.pagination_key
+  pagination_key = response.pagination_key
 end
 ```
 
@@ -159,7 +163,8 @@ response.orders.each { |o| ... }  # Iterate over orders
 response.pagination                # Hash with pagination data
 response.total_orders             # Total number of orders available
 response.limit                    # Current page limit
-response.offset                   # Current page offset
+response.offset                   # Current page offset (may be absent when using pagination_key)
+response.pagination_key           # Cursor for next page (use in next request)
 response.has_more?                # Whether more pages are available
 
 # Convert to hash or JSON
@@ -639,19 +644,23 @@ response = client.get_activity(
 
 #### Pagination
 
+Pagination uses a cursor-based `pagination_key`. Use `response.pagination_key` for the next page.
+
 ```ruby
 # Get first page
-response = client.get_activity(user_address, limit: 50, offset: 0)
+response = client.get_activity(user_address, limit: 50)
 
-# Get second page
-response = client.get_activity(user_address, limit: 50, offset: 50)
+# Get next page using cursor from previous response
+response = client.get_activity(user_address, limit: 50, pagination_key: response.pagination_key) if response.pagination_key
 
 # Loop through all pages
-offset = 0
 limit = 100
+pagination_key = nil
 
 loop do
-  response = client.get_activity(user_address, limit: limit, offset: offset)
+  options = { limit: limit }
+  options[:pagination_key] = pagination_key if pagination_key
+  response = client.get_activity(user_address, options)
   break if response.activities.empty?
   
   # Process activities
@@ -659,8 +668,8 @@ loop do
     puts "Processing activity: #{activity.tx_hash}"
   end
   
-  break unless response.has_more?
-  offset += limit
+  break unless response.has_more? && response.pagination_key
+  pagination_key = response.pagination_key
 end
 ```
 
@@ -714,7 +723,8 @@ response.activities.each { |a| ... }  # Iterate over activities
 response.pagination                # Hash with pagination data
 response.total_activities          # Total number of activities available
 response.limit                     # Current page limit
-response.offset                    # Current page offset
+response.offset                    # Current page offset (may be absent when using pagination_key)
+response.pagination_key            # Cursor for next page (use in next request)
 response.has_more?                 # Whether more pages are available
 
 # Convert to hash or JSON
@@ -897,7 +907,8 @@ end
 | `start_time` | Integer | Filter from Unix timestamp (inclusive) | `1640995200` |
 | `end_time` | Integer | Filter until Unix timestamp (inclusive) | `1672531200` |
 | `limit` | Integer | Number of orders to return (1-1000, default: 100) | `50` |
-| `offset` | Integer | Number of orders to skip (default: 0) | `0` |
+| `pagination_key` | String | Base64 cursor for next page (from previous response; use instead of offset) | — |
+| `offset` | Integer | Number of orders to skip (deprecated for large values; use `pagination_key` when available) | `0` |
 | `user` | String | Filter by user wallet address | `"0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"` |
 
 #### Activity Query Parameters
@@ -910,7 +921,8 @@ end
 | `market_slug` | String | Filter activity by market slug | `"will-the-doj-charge-boeing"` |
 | `condition_id` | String | Filter activity by condition ID | `"0x92e4b1b8e0621fab0537486e7d527322569d7a8fd394b3098ff4bb1d6e1c0bbd"` |
 | `limit` | Integer | Number of activities to return (1-1000, default: 100) | `50` |
-| `offset` | Integer | Number of activities to skip for pagination (default: 0) | `0` |
+| `pagination_key` | String | Base64 cursor for next page (from previous response; use instead of offset) | — |
+| `offset` | Integer | Number of activities to skip (deprecated for large values; use `pagination_key` when available) | `0` |
 
 #### Market Price Parameters
 

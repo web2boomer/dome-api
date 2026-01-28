@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'time'
+
 module DomeAPI
   class MarketPrice
     attr_reader :price, :at_time

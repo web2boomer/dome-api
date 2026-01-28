@@ -35,8 +35,7 @@ def markets_example
   begin
     options = {
       tags: ["crypto", "bitcoin"],
-      limit: 10,
-      offset: 0
+      limit: 10
     }
     
     response = client.get_markets(options)
@@ -121,22 +120,26 @@ def markets_example
   
   puts "\n" + "="*50 + "\n"
   
-  # Example 6: Pagination example
+  # Example 6: Pagination example (cursor-based via pagination_key)
   puts "6. Pagination example..."
   begin
-    offset = 0
     limit = 5
     total_processed = 0
+    page = 0
+    pagination_key = nil
     
     loop do
-      response = client.get_markets(limit: limit, offset: offset)
+      options = { limit: limit }
+      options[:pagination_key] = pagination_key if pagination_key
+      response = client.get_markets(options)
       break if response.markets.empty?
       
-      puts "   Page #{offset / limit + 1}: Processing #{response.markets.size} markets"
+      page += 1
+      puts "   Page #{page}: Processing #{response.markets.size} markets"
       total_processed += response.markets.size
       
-      break unless response.has_more?
-      offset += limit
+      break unless response.has_more? && response.pagination_key
+      pagination_key = response.pagination_key
     end
     
     puts "   Total markets processed: #{total_processed}"
