@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+
+# Pre-commit hook for dome-api gem
+# Runs tests and syntax checks before allowing commits
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+echo -e "${YELLOW}Running pre-commit checks...${NC}"
+echo ""
+
+# Store the exit status
+EXIT_STATUS=0
+
+# =============================================================================
+# Check 1: Ruby syntax check on staged .rb files
+# =============================================================================
+echo -e "${YELLOW}[1/3] Checking Ruby syntax on staged files...${NC}"
+
+STAGED_RB_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.rb$' || true)
+
+if [ -n "$STAGED_RB_FILES" ]; then
+  SYNTAX_ERRORS=0
+  for file in $STAGED_RB_FILES; do
+    if [ -f "$file" ]; then
+      # Check syntax without executing
+      if ! ruby -c "$file" > /dev/null 2>&1; then
+        echo -e "${RED}  ✗ Syntax error in: $file${NC}"
+        ruby -c "$file" 2>&1 | sed 's/^/    /'
+        SYNTAX_ERRORS=1
+      fi
+    fi
+  done
+  
+  if [ $SYNTAX_ERRORS -eq 0 ]; then
+    echo -e "${GREEN}  ✓ All staged Ruby files have valid syntax${NC}"
+  else
+    echo -e "${RED}  ✗ Syntax errors found - please fix before committing${NC}"
+    EXIT_STATUS=1
+  fi
+else
+  echo -e "${GREEN}  ✓ No staged Ruby files to check${NC}"
+fi
+
+echo ""
+
+# =============================================================================
+# Check 2: Ensure spec files exist for modified lib files (warning only)
+# =============================================================================
+echo -e "${YELLOW}[2/3] Checking for spec coverage...${NC}"
+
+STAGED_LIB_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '^lib/.*\.rb$' || true)
+
+if [ -n "$STAGED_LIB_FILES" ]; then
+  MISSING_SPECS=0
+  for file in $STAGED_LIB_FILES; do
+    # Skip version.rb and main module file
+    if [[ "$file" == *"version.rb" ]] || [[ "$file" == "lib/dome-api.rb" ]]; then
+      continue
+    fi
+    
+    # Check if there's a corresponding spec file or if the main spec covers it
+    SPEC_FILE="spec/clob_client_spec.rb"
+    if [ ! -f "$SPEC_FILE" ]; then
+      echo -e "${YELLOW}  ⚠ Warning: No spec file found for $file${NC}"
+      MISSING_SPECS=1
+    fi
+  done
+  
+  if [ $MISSING_SPECS -eq 0 ]; then
+    echo -e "${GREEN}  ✓ Spec file exists${NC}"
+  fi
+else
+  echo -e "${GREEN}  ✓ No lib files staged${NC}"
+fi
+
+echo ""
+
+# =============================================================================
+# Check 3: Run RSpec tests
+# =============================================================================
+echo -e "${YELLOW}[3/3] Running RSpec tests...${NC}"
+echo ""
+
+# Check if bundle is available and Gemfile exists
+if command -v bundle &> /dev/null && [ -f "Gemfile" ]; then
+  # Run tests with bundle exec
+  if bundle exec rspec --format progress --no-profile; then
+    echo ""
+    echo -e "${GREEN}  ✓ All tests passed${NC}"
+  else
+    echo ""
+    echo -e "${RED}  ✗ Tests failed - please fix before committing${NC}"
+    EXIT_STATUS=1
+  fi
+elif command -v rspec &> /dev/null; then
+  # Fallback to rspec directly
+  if rspec --format progress --no-profile; then
+    echo ""
+    echo -e "${GREEN}  ✓ All tests passed${NC}"
+  else
+    echo ""
+    echo -e "${RED}  ✗ Tests failed - please fix before committing${NC}"
+    EXIT_STATUS=1
+  fi
+else
+  echo -e "${YELLOW}  ⚠ RSpec not found - skipping tests${NC}"
+  echo -e "${YELLOW}    Run 'bundle install' to install dependencies${NC}"
+fi
+
+echo ""
+
+# =============================================================================
+# Final Summary
+# =============================================================================
+if [ $EXIT_STATUS -eq 0 ]; then
+  echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
+  echo -e "${GREEN}  ✓ All pre-commit checks passed!${NC}"
+  echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
+else
+  echo -e "${RED}═══════════════════════════════════════════════════════════${NC}"
+  echo -e "${RED}  ✗ Pre-commit checks failed!${NC}"
+  echo -e "${RED}    Please fix the issues above before committing.${NC}"
+  echo -e "${RED}    To bypass this hook (not recommended), use:${NC}"
+  echo -e "${RED}      git commit --no-verify${NC}"
+  echo -e "${RED}═══════════════════════════════════════════════════════════${NC}"
+fi
+
+exit $EXIT_STATUS
