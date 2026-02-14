@@ -887,6 +887,56 @@ time_periods.each do |period|
 end
 ```
 
+### WebSocket (real-time orders)
+
+The gem includes a WebSocket client for real-time Polymarket order events. See [Dome WebSocket docs](https://docs.domeapi.io/websockets) and [subscribe by users](https://docs.domeapi.io/websockets/subscribe-users).
+
+#### Basic usage
+
+```ruby
+require 'dome-api'
+
+ws = DomeAPI::WebSocket.new(api_key: ENV['DOME_API_KEY'])
+
+# Handle each order event (data hash: token_id, side, market_slug, user, timestamp, etc.)
+ws.on_event do |data|
+  puts "Order: #{data['user']} #{data['side']} #{data['shares_normalized']} @ #{data['price']}"
+end
+
+# Optional: called when each subscription is acknowledged
+ws.on_ack do |subscription_id|
+  puts "Subscribed: #{subscription_id}"
+end
+
+# Connect and subscribe when open. Block receives the WebSocket instance so you can call subscribe.
+# Chunk user addresses per your tier (e.g. 5 for Free, 500 for Dev).
+addresses = ["0x6031b6eed1c97e853c6e0f03ad3ce3529351f96d", "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"]
+ws.run(run_until: nil) do |gem_ws|
+  gem_ws.subscribe(
+    platform: "polymarket",
+    type: "orders",
+    filters: { users: addresses }
+  )
+  # For many users, chunk and subscribe multiple times:
+  # addresses.each_slice(500) { |chunk| gem_ws.subscribe(platform: "polymarket", type: "orders", filters: { users: chunk }) }
+end
+```
+
+#### Run for a limited time
+
+```ruby
+run_until = Time.now + 3600 # 1 hour
+ws.run(run_until: run_until) { |gem_ws| gem_ws.subscribe(platform: "polymarket", type: "orders", filters: { users: addresses }) }
+```
+
+#### WebSocket API
+
+- `DomeAPI::WebSocket.new(api_key: nil)` — build a client (defaults to `ENV['DOME_API_KEY']`).
+- `#on_event { |data| ... }` — block called for each order event; `data` is the event `"data"` hash.
+- `#on_ack { |subscription_id| ... }` — optional; called when a subscription is acknowledged.
+- `#subscribe(platform:, type:, filters:, version: 1)` — send a subscribe message (call from inside the `#run` block when connected).
+- `#run(run_until: nil, &on_open)` — connect and block; yields `self` when open so you can call `#subscribe`.
+
 ### API Reference
 
 #### Client Methods

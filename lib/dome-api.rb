@@ -13,6 +13,7 @@ require_relative "dome-api/candlestick_data"
 require_relative "dome-api/candlestick_response"
 require_relative "dome-api/pnl_data"
 require_relative "dome-api/wallet_pnl_response"
+require_relative "dome-api/websocket"
 
 module DomeAPI
   class Error < StandardError; end
