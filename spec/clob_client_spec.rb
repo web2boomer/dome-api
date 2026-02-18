@@ -1547,4 +1547,302 @@ RSpec.describe DomeAPI do
       end
     end
   end
+
+  describe "WebSocket" do
+    let(:api_key) { "test_websocket_api_key" }
+    let(:websocket) { DomeAPI::WebSocket.new(api_key: api_key) }
+
+    describe "#initialize" do
+      it "initializes with provided API key" do
+        ws = DomeAPI::WebSocket.new(api_key: "my_key")
+        expect(ws.api_key).to eq("my_key")
+      end
+
+      it "initializes with empty subscription_ids" do
+        expect(websocket.subscription_ids).to eq([])
+      end
+
+      it "falls back to ENV when no api_key provided" do
+        allow(ENV).to receive(:[]).with("DOME_API_KEY").and_return("env_key")
+        ws = DomeAPI::WebSocket.new
+        expect(ws.api_key).to eq("env_key")
+      end
+    end
+
+    describe "#on_event" do
+      it "registers an event handler block" do
+        handler_called = false
+        websocket.on_event { |_data| handler_called = true }
+        
+        # Simulate receiving an event message
+        event_message = { "type" => "event", "data" => { "token_id" => "123" } }.to_json
+        websocket.send(:handle_message, event_message)
+        
+        expect(handler_called).to be true
+      end
+
+      it "returns self for chaining" do
+        result = websocket.on_event { |_| }
+        expect(result).to eq(websocket)
+      end
+
+      it "passes event data to the handler" do
+        received_data = nil
+        websocket.on_event { |data| received_data = data }
+        
+        event_data = { "token_id" => "123", "side" => "BUY", "price" => 0.5 }
+        event_message = { "type" => "event", "data" => event_data }.to_json
+        websocket.send(:handle_message, event_message)
+        
+        expect(received_data).to eq(event_data)
+      end
+    end
+
+    describe "#on_ack" do
+      it "registers an acknowledgment handler block" do
+        handler_called = false
+        websocket.on_ack { |_sid| handler_called = true }
+        
+        # Simulate receiving an ack message
+        ack_message = { "type" => "ack", "subscription_id" => "sub_123" }.to_json
+        websocket.send(:handle_message, ack_message)
+        
+        expect(handler_called).to be true
+      end
+
+      it "returns self for chaining" do
+        result = websocket.on_ack { |_| }
+        expect(result).to eq(websocket)
+      end
+
+      it "passes subscription_id to the handler" do
+        received_sid = nil
+        websocket.on_ack { |sid| received_sid = sid }
+        
+        ack_message = { "type" => "ack", "subscription_id" => "sub_456" }.to_json
+        websocket.send(:handle_message, ack_message)
+        
+        expect(received_sid).to eq("sub_456")
+      end
+
+      it "stores subscription_id in subscription_ids array" do
+        ack_message = { "type" => "ack", "subscription_id" => "sub_789" }.to_json
+        websocket.send(:handle_message, ack_message)
+        
+        expect(websocket.subscription_ids).to include("sub_789")
+      end
+    end
+
+    describe "#subscribe" do
+      let(:mock_ws) { double("WebSocket::Client::Simple") }
+
+      before do
+        websocket.instance_variable_set(:@ws, mock_ws)
+        allow(mock_ws).to receive(:__send__)
+      end
+
+      it "sends a subscribe message with correct payload" do
+        expected_payload = {
+          action: "subscribe",
+          platform: "polymarket",
+          version: 1,
+          type: "orders",
+          filters: { users: ["0xabc123"] }
+        }.to_json
+
+        expect(mock_ws).to receive(:__send__).with(:send, expected_payload)
+
+        websocket.subscribe(
+          platform: "polymarket",
+          type: "orders",
+          filters: { users: ["0xabc123"] }
+        )
+      end
+
+      it "uses default version of 1" do
+        websocket.subscribe(
+          platform: "polymarket",
+          type: "orders",
+          filters: { users: [] }
+        )
+
+        expect(mock_ws).to have_received(:__send__) do |method, json|
+          payload = JSON.parse(json)
+          expect(payload["version"]).to eq(1)
+        end
+      end
+
+      it "allows custom version" do
+        websocket.subscribe(
+          platform: "polymarket",
+          type: "orders",
+          filters: { users: [] },
+          version: 2
+        )
+
+        expect(mock_ws).to have_received(:__send__) do |method, json|
+          payload = JSON.parse(json)
+          expect(payload["version"]).to eq(2)
+        end
+      end
+
+      it "does nothing if websocket is not connected" do
+        websocket.instance_variable_set(:@ws, nil)
+        
+        # Should not raise
+        expect { 
+          websocket.subscribe(platform: "polymarket", type: "orders", filters: {})
+        }.not_to raise_error
+      end
+    end
+
+    describe "#close" do
+      it "closes the websocket connection if open" do
+        mock_ws = double("WebSocket::Client::Simple")
+        allow(mock_ws).to receive(:close)
+        websocket.instance_variable_set(:@ws, mock_ws)
+
+        websocket.close
+
+        expect(mock_ws).to have_received(:close)
+      end
+
+      it "handles nil websocket gracefully" do
+        websocket.instance_variable_set(:@ws, nil)
+        
+        expect { websocket.close }.not_to raise_error
+      end
+
+      it "handles close errors gracefully" do
+        mock_ws = double("WebSocket::Client::Simple")
+        allow(mock_ws).to receive(:close).and_raise(StandardError, "Connection error")
+        websocket.instance_variable_set(:@ws, mock_ws)
+
+        expect { websocket.close }.not_to raise_error
+      end
+    end
+
+    describe "#run" do
+      it "raises error if API key is blank" do
+        ws = DomeAPI::WebSocket.new(api_key: nil)
+        allow(ENV).to receive(:[]).with("DOME_API_KEY").and_return(nil)
+        
+        # Re-initialize to pick up nil API key
+        ws = DomeAPI::WebSocket.new(api_key: "")
+        
+        expect { ws.run }.to raise_error(DomeAPI::Error, /DOME_API_KEY is not set/)
+      end
+    end
+
+    describe "message handling" do
+      it "handles event messages" do
+        events = []
+        websocket.on_event { |data| events << data }
+
+        event_data = { "token_id" => "abc", "side" => "SELL" }
+        websocket.send(:handle_message, { "type" => "event", "data" => event_data }.to_json)
+
+        expect(events.size).to eq(1)
+        expect(events.first["token_id"]).to eq("abc")
+      end
+
+      it "handles ack messages" do
+        acks = []
+        websocket.on_ack { |sid| acks << sid }
+
+        websocket.send(:handle_message, { "type" => "ack", "subscription_id" => "sub_1" }.to_json)
+
+        expect(acks).to eq(["sub_1"])
+      end
+
+      it "ignores empty messages" do
+        events = []
+        websocket.on_event { |data| events << data }
+
+        websocket.send(:handle_message, "")
+        websocket.send(:handle_message, "   ")
+        websocket.send(:handle_message, nil)
+
+        expect(events).to be_empty
+      end
+
+      it "ignores malformed JSON" do
+        events = []
+        websocket.on_event { |data| events << data }
+
+        websocket.send(:handle_message, "not valid json {{{")
+
+        expect(events).to be_empty
+      end
+
+      it "ignores unknown message types" do
+        events = []
+        acks = []
+        websocket.on_event { |data| events << data }
+        websocket.on_ack { |sid| acks << sid }
+
+        websocket.send(:handle_message, { "type" => "unknown", "data" => {} }.to_json)
+
+        expect(events).to be_empty
+        expect(acks).to be_empty
+      end
+
+      it "ignores event messages without data" do
+        events = []
+        websocket.on_event { |data| events << data }
+
+        websocket.send(:handle_message, { "type" => "event" }.to_json)
+
+        expect(events).to be_empty
+      end
+
+      it "handles multiple events in sequence" do
+        events = []
+        websocket.on_event { |data| events << data }
+
+        websocket.send(:handle_message, { "type" => "event", "data" => { "id" => 1 } }.to_json)
+        websocket.send(:handle_message, { "type" => "event", "data" => { "id" => 2 } }.to_json)
+        websocket.send(:handle_message, { "type" => "event", "data" => { "id" => 3 } }.to_json)
+
+        expect(events.size).to eq(3)
+        expect(events.map { |e| e["id"] }).to eq([1, 2, 3])
+      end
+
+      it "handles multiple subscription acks" do
+        websocket.send(:handle_message, { "type" => "ack", "subscription_id" => "sub_1" }.to_json)
+        websocket.send(:handle_message, { "type" => "ack", "subscription_id" => "sub_2" }.to_json)
+
+        expect(websocket.subscription_ids).to eq(["sub_1", "sub_2"])
+      end
+    end
+
+    describe "callback chaining" do
+      it "allows chaining on_event and on_ack" do
+        events = []
+        acks = []
+
+        result = websocket
+          .on_event { |data| events << data }
+          .on_ack { |sid| acks << sid }
+
+        expect(result).to eq(websocket)
+
+        websocket.send(:handle_message, { "type" => "event", "data" => { "x" => 1 } }.to_json)
+        websocket.send(:handle_message, { "type" => "ack", "subscription_id" => "sub_x" }.to_json)
+
+        expect(events.size).to eq(1)
+        expect(acks).to eq(["sub_x"])
+      end
+    end
+
+    describe "constants" do
+      it "has correct WSS_URL" do
+        expect(DomeAPI::WebSocket::WSS_URL).to eq("wss://ws.domeapi.io")
+      end
+
+      it "has correct DEFAULT_VERSION" do
+        expect(DomeAPI::WebSocket::DEFAULT_VERSION).to eq(1)
+      end
+    end
+  end
 end

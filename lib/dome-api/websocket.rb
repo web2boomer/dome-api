@@ -1,5 +1,9 @@
 # frozen_string_literal: true
 
+require "websocket-client-simple"
+# Capture the gem's client so Rails (e.g. ActionCable) cannot shadow ::WebSocket later
+WS_CLIENT = ::WebSocket::Client::Simple
+
 # Dome API WebSocket client. Connects to wss://ws.domeapi.io/<API_KEY>,
 # subscribes to channels (e.g. Polymarket orders by user), and yields
 # event data to the block passed to #on_event.
@@ -17,7 +21,7 @@ module DomeAPI
 
     # @param api_key [String] Dome API key (default: ENV['DOME_API_KEY'])
     def initialize(api_key: nil)
-      @api_key = api_key.presence || ENV["DOME_API_KEY"]
+      @api_key = (api_key && !api_key.to_s.strip.empty?) ? api_key : ENV["DOME_API_KEY"]
       @subscription_ids = []
       @on_event_block = nil
       @on_ack_block = nil
@@ -60,7 +64,7 @@ module DomeAPI
     # @yield [self] gem WebSocket instance so you can call subscribe(platform:, type:, filters:)
     # @return [void]
     def run(run_until: nil, &on_open)
-      raise Error, "DOME_API_KEY is not set" if @api_key.blank?
+      raise Error, "DOME_API_KEY is not set" if @api_key.nil? || @api_key.to_s.strip.empty?
 
       url = "#{WSS_URL}/#{@api_key}"
       @ws = nil
@@ -80,9 +84,8 @@ module DomeAPI
     end
 
     def connect_and_loop(url, run_until = nil, &on_open)
-      require "websocket-client-simple"
       gem_self = self
-      @ws = WebSocket::Client::Simple.connect(url)
+      @ws = WS_CLIENT.connect(url)
 
       @ws.on :open do
         on_open&.call(gem_self)
@@ -99,6 +102,10 @@ module DomeAPI
       @ws.on :error do |_e|
         # error emitted
       end
+
+      # Block until the socket's read thread exits (connection closed). Otherwise
+      # connect_and_loop returns immediately and the process exits.
+      @ws.thread.join if @ws.respond_to?(:thread) && @ws.thread
     end
 
     # Send a JSON string over the WebSocket. Uses __send__ on the underlying client to avoid Object#send.
